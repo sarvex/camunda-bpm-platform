@@ -16,9 +16,12 @@
  */
 package org.camunda.bpm.engine.impl.history;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.camunda.bpm.engine.ProcessEngineException;
 import org.camunda.bpm.engine.impl.cfg.ProcessEngineConfigurationImpl;
 import org.camunda.bpm.engine.impl.interceptor.CommandContext;
@@ -47,8 +50,19 @@ public interface SynchronousOperationLogProducer<T> {
 
   /**
    * Calls the code that produces the operation log. Usually <code>commandContext.getOperationLogManager().log...</code>
+   *
+   * The implementation must be capable of producing a single, summarizing operation log that contain information about an operation
+   * spanning affecting multiple entities as well as producing a single, detailed operation log containing information about a single
+   * affected entity. This method is called by the {@link SynchronousOperationLogProducer#produceOperationLog(CommandContext, List) produceOperationLog}
+   * method.
+   *
+   * @param commandContext the current command context
+   * @param result An object resulting from the operation for which this method produces the operation log. In case the operation produced
+   * multiple objects, depending on the implementation a representative object from the list of results or null can be passed.
+   * @param propChanges property changes to be attached to the operation log
+   * @param isSummary indicates whether the implementation should produce a summary log or a detailed log
    */
-  void createOperationLogEntry(CommandContext commandContext, T result, List<PropertyChange> propChanges);
+  void createOperationLogEntry(CommandContext commandContext, T result, List<PropertyChange> propChanges, boolean isSummary);
 
   /**
    * The implementing command can call this method to produce the operation log entries for the current operation.
@@ -57,14 +71,25 @@ public interface SynchronousOperationLogProducer<T> {
     if(results == null || results.isEmpty()) {
       return;
     }
-    Map<T, List<PropertyChange>> propChangesForOperation = getPropChangesForOperation(results);
 
     Long logEntriesPerSyncOperationLimit = commandContext.getProcessEngineConfiguration()
         .getLogEntriesPerSyncOperationLimit();
     if(logEntriesPerSyncOperationLimit == SUMMARY_LOG && results.size() > 1) {
+      // create summary from multi-result operation
+      List<PropertyChange> propChangesForOperation = getSummarizingPropChangesForOperation(results);
+      if(propChangesForOperation == null) {
+        // convert null return value to empty list
+        propChangesForOperation = Collections.singletonList(PropertyChange.EMPTY_CHANGE);
+      }
       // use first result as representative for summarized operation log entry
-      createOperationLogEntry(commandContext, results.get(0), getSummarizingPropChangesForOperation(results));
+      createOperationLogEntry(commandContext, results.get(0), propChangesForOperation, true);
     } else {
+      // create detailed log for each operation result
+      Map<T, List<PropertyChange>> propChangesForOperation = getPropChangesForOperation(results);
+      if(propChangesForOperation == null ) {
+        // create a map with empty result lists for each result item
+        propChangesForOperation = results.stream().collect(Collectors.toMap(Function.identity(), (result) -> Collections.singletonList(PropertyChange.EMPTY_CHANGE)));
+      }
       if (logEntriesPerSyncOperationLimit != UNLIMITED_LOG && logEntriesPerSyncOperationLimit < propChangesForOperation.size()) {
         throw new ProcessEngineException(
             "Maximum number of operation log entries for operation type synchronous APIs reached. Configured limit is "
@@ -72,7 +97,7 @@ public interface SynchronousOperationLogProducer<T> {
       } else {
         // produce one operation log per affected entity
         for (Entry<T, List<PropertyChange>> propChanges : propChangesForOperation.entrySet()) {
-          createOperationLogEntry(commandContext, propChanges.getKey(), propChanges.getValue());
+          createOperationLogEntry(commandContext, propChanges.getKey(), propChanges.getValue(), false);
         }
       }
     }

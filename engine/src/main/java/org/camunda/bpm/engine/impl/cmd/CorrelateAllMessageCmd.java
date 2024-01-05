@@ -82,11 +82,13 @@ public class CorrelateAllMessageCmd extends AbstractCorrelateMessageCmd implemen
   }
 
   @Override
-  public void createOperationLogEntry(CommandContext commandContext, MessageCorrelationResultImpl result, List<PropertyChange> propChanges) {
+  public void createOperationLogEntry(CommandContext commandContext, MessageCorrelationResultImpl result, List<PropertyChange> propChanges, boolean isSummary) {
     String processInstanceId = null;
     String processDefinitionId = null;
     if(result.getProcessInstance() != null) {
-      processInstanceId = result.getProcessInstance().getId();
+      if(!isSummary) {
+        processInstanceId = result.getProcessInstance().getId();
+      }
       processDefinitionId = result.getProcessInstance().getProcessDefinitionId();
     }
     commandContext.getOperationLogManager()
@@ -97,7 +99,7 @@ public class CorrelateAllMessageCmd extends AbstractCorrelateMessageCmd implemen
   public Map<MessageCorrelationResultImpl, List<PropertyChange>> getPropChangesForOperation(List<MessageCorrelationResultImpl> results) {
     Map<MessageCorrelationResultImpl, List<PropertyChange>> resultPropChanges = new HashMap<>();
     for (MessageCorrelationResultImpl messageCorrelationResultImpl : results) {
-      List<PropertyChange> propChanges = getGenericPropChangesForOperation(results);
+      List<PropertyChange> propChanges = getGenericPropChangesForOperation();
       ProcessInstance processInstance = messageCorrelationResultImpl.getProcessInstance();
       if(processInstance != null) {
         propChanges.add(new PropertyChange("processInstanceId", null, processInstance.getId()));
@@ -109,12 +111,12 @@ public class CorrelateAllMessageCmd extends AbstractCorrelateMessageCmd implemen
 
   @Override
   public List<PropertyChange> getSummarizingPropChangesForOperation(List<MessageCorrelationResultImpl> results) {
-    List<PropertyChange> propChanges = getGenericPropChangesForOperation(results);
+    List<PropertyChange> propChanges = getGenericPropChangesForOperation();
     propChanges.add(new PropertyChange("nrOfInstances", null, results.size()));
     return propChanges;
   }
 
-  protected List<PropertyChange> getGenericPropChangesForOperation(List<MessageCorrelationResultImpl> results) {
+  protected List<PropertyChange> getGenericPropChangesForOperation() {
     ArrayList<PropertyChange> propChanges = new ArrayList<>();
 
     propChanges.add(new PropertyChange("messageName", null, messageName));
